@@ -1,5 +1,7 @@
 const rateLimit = require("express-rate-limit");
-const RedisStore = require("rate-limit-redis");
+const rateLimitRedis = require("rate-limit-redis");
+const RedisStore = rateLimitRedis.default || rateLimitRedis.RedisStore;
+
 const redis = require("../config/redis");
 
 const apiLimiter = rateLimit({
