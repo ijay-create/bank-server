@@ -1,12 +1,15 @@
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
-const http = require("http");
 
+const http = require("http");
 const helmet = require("helmet");
 const compression = require("compression");
 
 const { initSocket } = require("./src/socket");
+
+// 🔥 Redis MUST load early (safe production fix)
+require("./src/config/redis");
 
 const authRoutes = require("./src/routes/authRoutes");
 const transactionRoutes = require("./src/routes/transactionRoutes");
@@ -29,7 +32,13 @@ const allowedOrigins = [
 
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
   })
 );
@@ -59,9 +68,17 @@ app.get("/", (req, res) => {
   res.send("Banking API Running...");
 });
 
+app.get("/health", (req, res) => {
+  res.json({
+    status: "OK",
+    uptime: process.uptime(),
+    timestamp: Date.now(),
+  });
+});
+
 /* ================= ERROR HANDLER ================= */
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error("SERVER ERROR:", err);
 
   res.status(500).json({
     message: "Something went wrong",
@@ -71,10 +88,11 @@ app.use((err, req, res, next) => {
 /* ================= SERVER + SOCKET ================= */
 const server = http.createServer(app);
 
+// init socket after server creation
 initSocket(server);
 
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
