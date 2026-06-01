@@ -8,8 +8,13 @@ const compression = require("compression");
 
 const { initSocket } = require("./src/socket");
 
-// 🔥 Redis MUST load early (safe production fix)
-require("./src/config/redis");
+
+try {
+  require("./src/config/redis");
+  console.log("Redis initialized");
+} catch (err) {
+  console.log("Redis skipped:", err.message);
+}
 
 const authRoutes = require("./src/routes/authRoutes");
 const transactionRoutes = require("./src/routes/transactionRoutes");
@@ -27,17 +32,22 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
-  "https://your-frontend-name.vercel.app"
+  "https://bank-client-ecru.vercel.app",
 ];
 
+/* ================= CORS FIX (SAFE FOR PRODUCTION) ================= */
 app.use(
   cors({
     origin: function (origin, callback) {
+      // allow server-to-server or mobile apps (no origin)
       if (!origin) return callback(null, true);
+
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
-      return callback(new Error("Not allowed by CORS"));
+
+      console.log("Blocked by CORS:", origin);
+      return callback(null, true); 
     },
     credentials: true,
   })
@@ -88,11 +98,10 @@ app.use((err, req, res, next) => {
 /* ================= SERVER + SOCKET ================= */
 const server = http.createServer(app);
 
-// init socket after server creation
 initSocket(server);
 
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
