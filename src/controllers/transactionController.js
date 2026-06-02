@@ -327,32 +327,50 @@ exports.transferMoney = async (req, res) => {
 };
 
 /* =========================
-   GET TRANSACTIONS (CACHED)
+   GET TRANSACTIONS (CACHE SAFE)
 ========================= */
 exports.getTransactions = async (req, res) => {
   try {
     const userId = req.user.id;
     const cacheKey = `transactions:${userId}`;
 
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      return res.status(200).json(JSON.parse(cached));
+    /* =========================
+       CACHE LOOKUP
+    ========================= */
+    try {
+      const cached = await redis.get(cacheKey);
+
+      if (cached) {
+        return res.status(200).json(JSON.parse(cached));
+      }
+    } catch (redisError) {
+      console.log(
+        "Redis read error:",
+        redisError.message
+      );
     }
 
+    /* =========================
+       DATABASE QUERY
+    ========================= */
     const result = await pool.query(
       `
-      SELECT 
+      SELECT
         t.*,
         sender.full_name AS sender_name,
         receiver.full_name AS receiver_name,
-        CASE 
+        CASE
           WHEN t.sender_id = $1 THEN 'debit'
           WHEN t.receiver_id = $1 THEN 'credit'
         END AS type
       FROM transactions t
-      LEFT JOIN users sender ON sender.id = t.sender_id
-      LEFT JOIN users receiver ON receiver.id = t.receiver_id
-      WHERE t.sender_id = $1 OR t.receiver_id = $1
+      LEFT JOIN users sender
+        ON sender.id = t.sender_id
+      LEFT JOIN users receiver
+        ON receiver.id = t.receiver_id
+      WHERE
+        t.sender_id = $1
+        OR t.receiver_id = $1
       ORDER BY t.created_at DESC
       `,
       [userId]
@@ -360,11 +378,30 @@ exports.getTransactions = async (req, res) => {
 
     const transactions = result.rows;
 
-    await redis.setEx(cacheKey, 120, JSON.stringify(transactions));
+    /* =========================
+       CACHE RESULT
+    ========================= */
+    try {
+      await redis.setEx(
+        cacheKey,
+        120,
+        JSON.stringify(transactions)
+      );
+    } catch (redisError) {
+      console.log(
+        "Redis write error:",
+        redisError.message
+      );
+    }
 
     return res.status(200).json(transactions);
+
   } catch (error) {
-    console.log(error);
+    console.log(
+      "GET TRANSACTIONS ERROR:",
+      error
+    );
+
     return res.status(500).json({
       message: "Could not fetch transactions",
     });
