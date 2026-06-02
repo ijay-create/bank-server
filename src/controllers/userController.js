@@ -6,46 +6,56 @@ exports.getUserProfile = async (req, res) => {
     const userId = req.user.id;
 
     /* =========================
-       CHECK CACHE FIRST
+       TRY CACHE FIRST
     ========================= */
-    const cachedUser = await redis.get(`user:${userId}`);
+    try {
+      const cachedUser = await redis.get(`user:${userId}`);
 
-    if (cachedUser) {
-      return res.status(200).json(JSON.parse(cachedUser));
+      if (cachedUser) {
+        return res.status(200).json(JSON.parse(cachedUser));
+      }
+    } catch (redisError) {
+      console.log("Redis read error:", redisError.message);
     }
 
     /* =========================
-       FETCH FROM DB
+       FETCH FROM DATABASE
     ========================= */
     const userResult = await pool.query(
-      `SELECT
+      `
+      SELECT
         id,
         full_name,
         email,
         account_number,
         balance,
         role
-       FROM users
-       WHERE id = $1`,
+      FROM users
+      WHERE id = $1
+      `,
       [userId]
     );
 
-    const user = userResult.rows[0];
-
-    if (!user) {
+    if (userResult.rows.length === 0) {
       return res.status(404).json({
         message: "User not found",
       });
     }
 
+    const user = userResult.rows[0];
+
     /* =========================
-       CACHE RESULT (5 MIN)
+       CACHE RESULT (NON-BLOCKING)
     ========================= */
-    await redis.setEx(
-      `user:${userId}`,
-      300,
-      JSON.stringify(user)
-    );
+    try {
+      await redis.setEx(
+        `user:${userId}`,
+        300,
+        JSON.stringify(user)
+      );
+    } catch (redisError) {
+      console.log("Redis write error:", redisError.message);
+    }
 
     return res.status(200).json(user);
 
@@ -54,6 +64,10 @@ exports.getUserProfile = async (req, res) => {
 
     return res.status(500).json({
       message: "Could not fetch profile",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
     });
   }
 };
